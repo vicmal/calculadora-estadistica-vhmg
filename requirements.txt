@@ -1,5 +1,9 @@
-streamlit==1.37.0
-seaborn==0.13.2
-matplotlib==3.9.0
-pandas==2.2.2
-numpy==1.26.4
+streamlit
+pandas
+numpy
+matplotlib
+seaborn
+patsy
+statsmodels
+scipy
+scikit-posthocs
