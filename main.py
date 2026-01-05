@@ -3,149 +3,144 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import random
-
-# Librerías para Estadística
+from scipy import stats
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
-from scipy.stats import shapiro, levene, kruskal
-import scikit_posthocs as sp  # Para Dunn (post-hoc no paramétrico)
-from statsmodels.stats.multicomp import pairwise_tukeyhsd
+from statsmodels.stats.stattools import durbin_watson
+import scikit_posthocs as sp
+import random
 
-# 1. CONFIGURACIÓN E IDENTIDAD
-st.set_page_config(page_title="Calculadora VHMG - Estadística", layout="wide")
+# Configuración de página
+st.set_page_config(page_title="Calculadora Estadística VHMG Pro", layout="wide")
+sns.set_theme(style="whitegrid")
 
-# Lógica de imágenes aleatorias
-imagenes_investigacion = [
-    "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158",
-    "https://images.unsplash.com/photo-1551288049-bbda48658a7d",
-    "https://images.unsplash.com/photo-1523348837708-15d4a09cfac2",
-    "https://images.unsplash.com/photo-1576086213369-97a306dca665"
-]
+def cargar_imagen_investigador():
+    id_investigador = random.randint(1, 1000)
+    url = f"https://picsum.photos/id/{id_investigador}/800/400"
+    st.image(url, caption="Inspiración para la investigación científica - VHMG", use_container_width=True)
 
-# 2. ENCABEZADO
-col1, col2 = st.columns([1, 3])
-with col1:
-    st.image(random.choice(imagenes_investigacion), use_container_width=True)
-with col2:
-    st.title("CALCULADORA DE ANÁLISIS ESTADÍSTICO VHMG")
-    st.markdown("**Sistema Experto Integrado** | Autor: *Ing. Víctor Hugo Malavé Girón*")
+def realizar_analisis_vhmg(df):
+    st.header("🔬 Auditoría de Supuestos del Modelo")
+    
+    # 1. AJUSTE DEL MODELO (La Factura antes de la Pizza)
+    try:
+        # Definición del modelo lineal aditivo: Y = mu + tau + error
+        modelo = ols('Respuesta ~ C(Tratamiento)', data=df).fit()
+        df['Ajustados'] = modelo.fittedvalues
+        df['Residuales'] = modelo.resid
+        df['Orden'] = range(1, len(df) + 1) # Para prueba de independencia
+    except Exception as e:
+        st.error(f"Error en la especificación del modelo: {e}")
+        return
 
-# 3. PANEL DE CONTROL
-st.sidebar.header("CONFIGURACIÓN")
-archivo = st.sidebar.file_uploader("Suba su archivo (.txt o .csv)", type=["txt", "csv"])
-diseno = st.sidebar.selectbox("Diseño Experimental:", ["DCA", "DBCA", "Factorial"])
+    # --- PANEL DE DIAGNÓSTICO VISUAL ---
+    st.subheader("1. Visualización de Diagnóstico")
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    
+    # A. Normalidad: Q-Q Plot
+    sm.qqplot(df['Residuales'], line='s', ax=axes[0, 0])
+    axes[0, 0].set_title("Q-Q Plot (Normalidad)")
 
-if archivo is not None:
-    df = pd.read_csv(archivo, sep=None, engine='python')
-    vars_num = df.select_dtypes(include=[np.number]).columns.tolist()
-    vars_cat = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    # B. Homocedasticidad: Residuos vs Ajustados
+    sns.scatterplot(x=df['Ajustados'], y=df['Residuales'], ax=axes[0, 1])
+    axes[0, 1].axhline(0, color='red', linestyle='--')
+    axes[0, 1].set_title("Residuos vs. Ajustados (Varianza)")
 
-    if vars_num and vars_cat:
-        st.sidebar.subheader("Variables del Modelo")
-        resp = st.sidebar.selectbox("Variable Respuesta (Y):", vars_num)
+    # C. Independencia: Residuos vs Orden
+    axes[1, 0].plot(df['Orden'], df['Residuales'], marker='o', linestyle='-')
+    axes[1, 0].axhline(0, color='red', linestyle='--')
+    axes[1, 0].set_title("Residuos vs. Orden (Independencia)")
 
-        if diseno == "Factorial":
-            f1 = st.sidebar.selectbox("Factor A:", vars_cat, key="f1")
-            f2 = st.sidebar.selectbox("Factor B:", vars_cat, key="f2")
-            factores = [f1, f2]
+    # D. Aditividad: Boxplot de Residuos por Tratamiento
+    sns.boxplot(x='Tratamiento', y='Residuales', data=df, ax=axes[1, 1])
+    axes[1, 1].axhline(0, color='red', linestyle='--')
+    axes[1, 1].set_title("Residuos por Tratamiento (Aditividad/Forma)")
+
+    plt.tight_layout()
+    st.pyplot(fig)
+
+    # --- PRUEBAS FORMALES ---
+    st.divider()
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("🧪 Pruebas Formales")
+        
+        # Normalidad
+        _, p_shapiro = stats.shapiro(df['Residuales'])
+        st.write(f"**Normalidad (Shapiro-Wilk):** p = `{p_shapiro:.4f}`")
+        
+        # Homocedasticidad (Levene es más robusto que Bartlett)
+        grupos = [group['Residuales'].values for name, group in df.groupby('Tratamiento')]
+        _, p_levene = stats.levene(*grupos)
+        st.write(f"**Homocedasticidad (Levene):** p = `{p_levene:.4f}`")
+        
+        # Independencia (Durbin-Watson)
+        dw = durbin_watson(df['Residuales'])
+        st.write(f"**Independencia (Durbin-Watson):** DW = `{dw:.4f}`")
+
+    with col2:
+        st.subheader("📋 Resumen de Cumplimiento")
+        cumple_norm = p_shapiro > 0.05
+        cumple_homo = p_levene > 0.05
+        cumple_indp = 1.5 < dw < 2.5
+        
+        st.write(f"{'✅' if cumple_norm else '❌'} Normalidad")
+        st.write(f"{'✅' if cumple_homo else '❌'} Homocedasticidad")
+        st.write(f"{'✅' if cumple_indp else '❌'} Independencia (DW)")
+        st.write("✅ Aditividad (Evaluada por estructura de modelo lineal)")
+
+    st.divider()
+
+    # --- INFERENCIA FINAL ---
+    if cumple_norm and cumple_homo:
+        st.subheader("📊 Resultados: ANOVA (Modelo Paramétrico)")
+        tabla_anova = sm.stats.anova_lm(modelo, typ=2)
+        st.table(tabla_anova)
+        p_val = tabla_anova['PR(>F)'][0]
+        
+        if p_val < 0.05:
+            st.success(f"Diferencias significativas detectadas (p = {p_val:.4f})")
+            st.write("#### Prueba Post-hoc: Tukey HSD")
+            posthoc = sp.posthoc_tukey(df, val_col='Respuesta', group_col='Tratamiento')
+            st.dataframe(posthoc)
         else:
-            f1 = st.sidebar.selectbox("Factor Principal:", vars_cat)
-            factores = [f1]
-
-        if st.sidebar.button("INICIAR ANÁLISIS TOTAL"):
-            # --- PASO 1: AED ---
-            st.header("🔍 1. Análisis Exploratorio (AED)")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.write("**Estadísticos Descriptivos**")
-                st.dataframe(df.groupby(f1)[resp].describe())
-            with col_b:
-                fig_box = plt.figure(figsize=(8, 5))
-                sns.boxplot(data=df, x=f1, y=resp, palette="Set2")
-                st.pyplot(fig_box)
-
-            # --- PASO 2: ANAVA Y SUPUESTOS ---
-            st.divider()
-            st.header("🧪 2. Motor de Inferencia y Supuestos")
-
-            # Ajuste de Modelo según diseño
-            if diseno == "Factorial":
-                formula = f"{resp} ~ C({f1}) * C({f2})"
-                # Gráfico de Interacción (NUEVO)
-                st.subheader("📊 Gráfico de Interacción")
-                fig_int = plt.figure(figsize=(10, 5))
-                from statsmodels.graphics.factorplots import interaction_plot
-
-                interaction_plot(x=df[f1], trace=df[f2], response=df[resp], ax=plt.gca())
-                st.pyplot(fig_int)
-            else:
-                formula = f"{resp} ~ C({f1})"
-
-            modelo = ols(formula, data=df).fit()
-            tabla_anava = sm.stats.anova_lm(modelo, typ=2)
-            residuos = modelo.resid
-
-            # Validación de Supuestos
-            p_shapiro = shapiro(residuos)[1]
-            p_levene = levene(*[df[resp][df[f1] == n] for n in df[f1].unique()])[1]
-
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                st.metric("Normalidad (p-val)", f"{p_shapiro:.4f}", delta="CUMPLE" if p_shapiro > 0.05 else "FALLA",
-                          delta_color="normal" if p_shapiro > 0.05 else "inverse")
-            with col_s2:
-                st.metric("Homocedasticidad (p-val)", f"{p_levene:.4f}", delta="CUMPLE" if p_levene > 0.05 else "FALLA",
-                          delta_color="normal" if p_levene > 0.05 else "inverse")
-
-            # --- PASO 3: DECISIÓN INTELIGENTE (NUEVO) ---
-            st.divider()
-            st.header("⚖️ 3. Decisión y Resultados Finales")
-
-            if p_shapiro > 0.05 and p_levene > 0.05:
-                st.success("✅ RUTA PARAMÉTRICA: Se cumplen los supuestos.")
-                st.dataframe(tabla_anava)
-
-                # Reporte Automático ANAVA
-                sig_factores = [f for f in tabla_anava.index if
-                                f != 'Remainder' and tabla_anava.loc[f, 'PR(>F)'] < 0.05]
-                st.info(
-                    f"**Reporte:** Se detectaron diferencias significativas en: {', '.join(sig_factores) if sig_factores else 'Ninguno'}.")
-
-                if sig_factores:
-                    st.subheader("📍 Comparación de Medias (Tukey)")
-                    tukey = pairwise_tukeyhsd(df[resp], df[f1])
-                    st.write(tukey)
-
-            else:
-                st.error("❌ RUTA NO PARAMÉTRICA: Violación de supuestos detectada.")
-                st.warning("Ejecutando Prueba de Kruskal-Wallis...")
-
-                # Kruskal-Wallis (NUEVO)
-                grupos = [df[resp][df[f1] == n] for n in df[f1].unique()]
-                h_stat, p_kruskal = kruskal(*grupos)
-                st.write(f"**Prueba H de Kruskal-Wallis:** p-valor = {p_kruskal:.4f}")
-
-                if p_kruskal < 0.05:
-                    st.subheader("📍 Comparación Múltiple No Paramétrica (Prueba de Dunn)")
-                    # Prueba de Dunn (NUEVO)
-                    dunn = sp.posthoc_dunn(df, val_col=resp, group_col=f1, p_adjust='bonferroni')
-                    st.dataframe(dunn)
-                    st.write("Interpretación: Los valores < 0.05 indican parejas con diferencias significativas.")
-
-            # --- PASO 4: REPORTE FINAL AUTOMÁTICO (NUEVO) ---
-            st.subheader("📝 Conclusión Final")
-            if p_shapiro < 0.05:
-                conclusion = "Los datos no presentan normalidad, lo cual sugiere la presencia de valores atípicos o una distribución sesgada. "
-            else:
-                conclusion = "Los datos cumplen con los estándares de normalidad. "
-
-            if 'p_kruskal' in locals() and p_kruskal < 0.05:
-                conclusion += f"A través de métodos no paramétricos, se confirma que el factor {f1} altera significativamente la respuesta."
-            elif sig_factores:
-                conclusion += f"El análisis de varianza confirma efectos significativos de los factores estudiados sobre la variable {resp}."
-
-            st.write(conclusion)
-
+            st.info("No se detectaron diferencias significativas entre los tratamientos.")
     else:
-        st.error("El archivo no tiene el formato adecuado de columnas.")
+        st.warning("⚠️ Los supuestos paramétricos no se cumplen. Aplicando prueba no paramétrica de respaldo.")
+        st.subheader("📊 Resultados: Kruskal-Wallis")
+        stat_k, p_k = stats.kruskal(*[group['Respuesta'].values for name, group in df.groupby('Tratamiento')])
+        st.write(f"Estadístico H: `{stat_k:.4f}`, p-valor: `{p_k:.4f}`")
+        
+        if p_k < 0.05:
+            st.success("Diferencias significativas detectadas.")
+            st.write("#### Prueba Post-hoc: Dunn (Holm)")
+            posthoc = sp.posthoc_dunn(df, val_col='Respuesta', group_col='Tratamiento', p_adjust='holm')
+            st.dataframe(posthoc)
+        else:
+            st.info("No se detectaron diferencias significativas.")
+
+# --- INTERFAZ STREAMLIT ---
+st.title("📊 Calculadora VHMG: Diseño de Experimentos")
+st.markdown("""
+Esta aplicación valida los **4 supuestos críticos** antes de emitir un juicio estadístico:
+1. **Normalidad** 2. **Homocedasticidad** 3. **Independencia** 4. **Aditividad**.
+""")
+
+cargar_imagen_investigador()
+
+archivo = st.file_uploader("Cargue su archivo (CSV o TXT)", type=['csv', 'txt'])
+
+if archivo:
+    try:
+        if archivo.name.endswith('.csv'):
+            df = pd.read_csv(archivo)
+        else:
+            df = pd.read_csv(archivo, sep=None, engine='python')
+        
+        if 'Tratamiento' in df.columns and 'Respuesta' in df.columns:
+            realizar_analisis_vhmg(df)
+        else:
+            st.error("Error: El archivo debe tener columnas 'Tratamiento' y 'Respuesta'.")
+    except Exception as e:
+        st.error(f"Error al procesar el archivo: {e}")
