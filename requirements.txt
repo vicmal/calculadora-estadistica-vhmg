@@ -1,4 +1,8 @@
 streamlit
-sympy
+pandas
 numpy
 matplotlib
+seaborn
+statsmodels
+scipy
+scikit-posthocs
