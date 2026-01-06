@@ -8,47 +8,64 @@ import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from statsmodels.stats.stattools import durbin_watson
 import scikit_posthocs as sp
+import random
 
 # Configuración y Estilo
-st.set_page_config(page_title="Suite DOE VHMG Master", layout="wide")
+st.set_page_config(page_title="Suite DOE VHMG Master v4", layout="wide")
 sns.set_theme(style="whitegrid")
 
-def mostrar_aeda_profesional(df, factores, respuesta):
-    st.header("🔍 Análisis Exploratorio de Datos (AEDA)")
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("📊 Descriptivas por Factor Principal")
-        # Usamos el primer factor seleccionado para la tabla
-        desc = df.groupby(factores[0])[respuesta].agg(['count', 'mean', 'std', 'min', 'max']).reset_index()
-        desc['CV%'] = (desc['std'] / desc['mean']) * 100
-        st.dataframe(desc.style.format(precision=3))
-        
-    with col2:
-        st.subheader("📈 Gráfico de Caja y Bigotes")
-        fig, ax = plt.subplots()
-        sns.boxplot(data=df, x=factores[0], y=respuesta, hue=factores[1] if len(factores)>1 else None, ax=ax)
-        st.pyplot(fig)
+def cargar_imagen_investigador():
+    id_investigador = random.randint(1, 1000)
+    url = f"https://picsum.photos/id/{id_investigador}/800/400"
+    st.image(url, caption="Ingeniería y Ciencia de Datos - Ref. Autoría: Ing. Víctor Hugo Malavé Girón", use_container_width=True)
 
-def ejecutar_motor_estadistico(df, diseño, factores, respuesta):
-    st.divider()
-    st.header(f"⚖️ Análisis de Inferencia: {diseño}")
+def redactar_conclusion_pro(p_valor, factor_nombre, alfa=0.05):
+    st.subheader("📝 Dictamen Final del Ensayo")
+    if p_valor < alfa:
+        st.success(f"""
+        **Resultado:** Estadísticamente Significativo (p = {p_valor:.4f} < {alfa}).
+        
+        **Interpretación del p-value:** La probabilidad de que las diferencias observadas se deban al azar es menor al 5%. 
+        Por tanto, se **rechaza la Hipótesis Nula (H₀)** que planteaba igualdad entre tratamientos. 
+        **Implicación:** El factor '{factor_nombre}' influye de manera determinante en la variable respuesta.
+        """)
+    else:
+        st.info(f"""
+        **Resultado:** No Significativo (p = {p_valor:.4f} > {alfa}).
+        
+        **Interpretación del p-value:** No existe evidencia suficiente para descartar que las diferencias sean fruto de la variabilidad natural o error experimental. 
+        Se **acepta la Hipótesis Nula (H₀)**.
+        **Implicación:** No se recomienda realizar cambios basados en el factor '{factor_nombre}', ya que su efecto no es consistente.
+        """)
+
+def analizar_post_hoc(df, factor, respuesta):
+    st.subheader("🔍 Prueba de Comparación de Medias (Tukey HSD)")
+    # Ejecutar prueba
+    ph = sp.posthoc_tukey(df, val_col=respuesta, group_col=factor)
+    st.dataframe(ph.style.background_gradient(cmap='YlGnBu'))
     
-    # Construcción Dinámica de la Fórmula según el Diseño
+    # Identificar extremos
+    medias = df.groupby(factor)[respuesta].mean().sort_values()
+    mejor_t = medias.index[-1]
+    peor_t = medias.index[0]
+    
+    st.markdown(f"""
+    **Interpretación de Rangos:**
+    * El tratamiento que presenta el **mayor promedio** es **{mejor_t}** con una media de `{medias.max():.2f}`.
+    * El tratamiento con el **menor desempeño** es **{peor_t}** con una media de `{medias.min():.2f}`.
+    * *Nota:* En la matriz superior, los valores p < 0.05 indican parejas de tratamientos que son significativamente diferentes entre sí.
+    """)
+
+def ejecutar_motor_v4(df, diseño, factores, respuesta):
+    st.divider()
+    # Construcción de fórmula (Lógica igual a v3)
     if diseño == "Diseño Completamente Aleatorizado (DCA)":
         formula = f"Q('{respuesta}') ~ C(Q('{factores[0]}'))"
     elif diseño == "Diseño de Bloques al Azar (DBCA)":
         formula = f"Q('{respuesta}') ~ C(Q('{factores[0]}')) + C(Q('{factores[1]}'))"
     elif diseño == "Diseño Factorial":
-        # Incluye Interacción
         formula = f"Q('{respuesta}') ~ C(Q('{factores[0]}')) * C(Q('{factores[1]}'))"
-    elif diseño == "Diseño Cuadrado Latino (DCL)":
-        formula = f"Q('{respuesta}') ~ C(Q('{factores[0]}')) + C(Q('{factores[1]}')) + C(Q('{factores[2]}'))"
-    elif diseño == "Superficie de Respuesta / Taguchi":
-        # Modelo cuadrático para optimización
-        formula = f"Q('{respuesta}') ~ Q('{factores[0]}') + I(Q('{factores[0]}')**2)"
     else:
-        # Genérico para diseños complejos
         terminos = " + ".join([f"C(Q('{f}'))" for f in factores])
         formula = f"Q('{respuesta}') ~ {terminos}"
 
@@ -58,8 +75,8 @@ def ejecutar_motor_estadistico(df, diseño, factores, respuesta):
         df['Ajustados'] = modelo.fittedvalues
         df['Orden'] = range(1, len(df) + 1)
         
-        # --- VALIDACIÓN DE 4 SUPUESTOS SOBRE RESIDUOS ---
-        st.subheader("🔬 Validación de Supuestos Críticos")
+        # 4 Supuestos
+        st.header("🔬 Validación de los 4 Supuestos")
         fig, axes = plt.subplots(1, 4, figsize=(20, 4))
         sm.qqplot(df['Residuos'], line='s', ax=axes[0]); axes[0].set_title("1. Normalidad")
         sns.scatterplot(x=df['Ajustados'], y=df['Residuos'], ax=axes[1]); axes[1].axhline(0, color='red'); axes[1].set_title("2. Homocedasticidad")
@@ -67,64 +84,49 @@ def ejecutar_motor_estadistico(df, diseño, factores, respuesta):
         sns.boxplot(x=factores[0], y='Residuos', data=df, ax=axes[3]); axes[3].set_title("4. Aditividad")
         st.pyplot(fig)
 
-        # TABLA ANOVA
-        st.subheader("📊 Tabla de Análisis de Varianza (ANAVA)")
+        # ANOVA e Interpretación
+        st.header(f"📊 Resultados del {diseño}")
         tabla_anova = sm.stats.anova_lm(modelo, typ=2)
         st.table(tabla_anova)
         
-        # Conclusión basada en el p-valor del factor principal
-        p_val = tabla_anova.iloc[0, 3]
-        if p_val < 0.05:
-            st.success(f"**Conclusión:** Existen diferencias significativas (p={p_val:.4f}). Se rechaza H0.")
-            if diseño in ["DCA", "DBCA", "Diseño Factorial"]:
-                st.subheader("🔍 Pruebas Post-hoc (Tukey)")
-                ph = sp.posthoc_tukey(df, val_col=respuesta, group_col=factores[0])
-                st.dataframe(ph.style.background_gradient(cmap='viridis'))
-        else:
-            st.info(f"**Conclusión:** No hay diferencias significativas (p={p_val:.4f}).")
+        p_val_principal = tabla_anova.iloc[0, 3]
+        redactar_conclusion_pro(p_val_principal, factores[0])
+        
+        if p_val_principal < 0.05:
+            analizar_post_hoc(df, factores[0], respuesta)
 
     except Exception as e:
-        st.error(f"Error en el cálculo del modelo: {e}. Verifique que seleccionó los factores correctos para el {diseño}.")
+        st.error(f"Error técnico: {e}")
 
-# --- INTERFAZ DE USUARIO ---
-st.title("🚀 Suite Master de Diseño de Experimentos VHMG")
-st.markdown("Plataforma integral para el análisis de diseños industriales y científicos.")
+# --- INTERFAZ ---
+st.title("🚀 Suite DOE Master v4 - Ing. Víctor Hugo Malavé Girón")
+cargar_imagen_investigador()
 
-archivo = st.file_uploader("Suba su archivo de datos", type=['csv', 'txt'])
+archivo = st.file_uploader("Cargue su base de datos para análisis", type=['csv', 'txt'])
 
 if archivo:
     df = pd.read_csv(archivo, sep=None, engine='python')
     columnas = df.columns.tolist()
     
-    st.sidebar.header("⚙️ Configuración del Diseño")
-    tipo_diseño = st.sidebar.selectbox("Seleccione el Tipo de Diseño:", [
+    st.sidebar.header("⚙️ Configuración")
+    tipo_diseño = st.sidebar.selectbox("Tipo de Diseño:", [
         "Diseño Completamente Aleatorizado (DCA)",
         "Diseño de Bloques al Azar (DBCA)",
         "Diseño Factorial",
-        "Diseño Cuadrado Latino (DCL)",
-        "Diseño de Superficie de Respuesta / Taguchi",
-        "Diseño de Bloques Incompletos",
-        "Diseños Aumentados"
+        "Diseño Cuadrado Latino (DCL)"
     ])
     
     col_resp = st.sidebar.selectbox("Variable Respuesta (Y):", df.select_dtypes(include=[np.number]).columns)
     
-    # Selección dinámica de factores según el diseño
+    # Configuración de factores según diseño
     if tipo_diseño == "Diseño Completamente Aleatorizado (DCA)":
-        f1 = st.sidebar.selectbox("Factor de Tratamiento:", columnas)
-        factores = [f1]
+        factores = [st.sidebar.selectbox("Factor Tratamiento:", columnas)]
     elif tipo_diseño in ["Diseño de Bloques al Azar (DBCA)", "Diseño Factorial"]:
         f1 = st.sidebar.selectbox("Factor Principal:", columnas)
-        f2 = st.sidebar.selectbox("Factor Secundario / Bloque:", columnas)
+        f2 = st.sidebar.selectbox("Factor Secundario/Bloque:", columnas)
         factores = [f1, f2]
-    elif tipo_diseño == "Diseño Cuadrado Latino (DCL)":
-        f1 = st.sidebar.selectbox("Tratamiento:", columnas)
-        f2 = st.sidebar.selectbox("Factor Fila:", columnas)
-        f3 = st.sidebar.selectbox("Factor Columna:", columnas)
-        factores = [f1, f2, f3]
     else:
-        factores = st.sidebar.multiselect("Seleccione todos los factores involucrados:", columnas)
+        factores = st.sidebar.multiselect("Seleccione Factores:", columnas)
 
-    if st.sidebar.button("⚡ Ejecutar Análisis"):
-        mostrar_aeda_profesional(df, factores, col_resp)
-        ejecutar_motor_estadistico(df, tipo_diseño, factores, col_resp)
+    if st.sidebar.button("⚡ Ejecutar Análisis Profesional"):
+        ejecutar_motor_v4(df, tipo_diseño, factores, col_resp)
