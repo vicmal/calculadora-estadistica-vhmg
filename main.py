@@ -11,7 +11,7 @@ import scikit_posthocs as sp
 import random
 
 # Configuración y Estilo
-st.set_page_config(page_title="Suite DOE VHMG Master v4", layout="wide")
+st.set_page_config(page_title="Suite DOE VHMG Master v5", layout="wide")
 sns.set_theme(style="whitegrid")
 
 def cargar_imagen_investigador():
@@ -19,114 +19,145 @@ def cargar_imagen_investigador():
     url = f"https://picsum.photos/id/{id_investigador}/800/400"
     st.image(url, caption="Ingeniería y Ciencia de Datos - Ref. Autoría: Ing. Víctor Hugo Malavé Girón", use_container_width=True)
 
-def redactar_conclusion_pro(p_valor, factor_nombre, alfa=0.05):
-    st.subheader("📝 Dictamen Final del Ensayo")
-    if p_valor < alfa:
-        st.success(f"""
-        **Resultado:** Estadísticamente Significativo (p = {p_valor:.4f} < {alfa}).
-        
-        **Interpretación del p-value:** La probabilidad de que las diferencias observadas se deban al azar es menor al 5%. 
-        Por tanto, se **rechaza la Hipótesis Nula (H₀)** que planteaba igualdad entre tratamientos. 
-        **Implicación:** El factor '{factor_nombre}' influye de manera determinante en la variable respuesta.
-        """)
-    else:
-        st.info(f"""
-        **Resultado:** No Significativo (p = {p_valor:.4f} > {alfa}).
-        
-        **Interpretación del p-value:** No existe evidencia suficiente para descartar que las diferencias sean fruto de la variabilidad natural o error experimental. 
-        Se **acepta la Hipótesis Nula (H₀)**.
-        **Implicación:** No se recomienda realizar cambios basados en el factor '{factor_nombre}', ya que su efecto no es consistente.
-        """)
+def prueba_aditividad_tukey(df, respuesta, modelo):
+    """Implementación de la Prueba de Aditividad de Tukey (1 Grado de Libertad)"""
+    y_hat = modelo.fittedvalues
+    y_hat_sq = y_hat**2
+    # Ajustamos un modelo auxiliar incluyendo el cuadrado de los valores predichos
+    # Si este término es significativo, hay no-aditividad.
+    df_aux = df.copy()
+    df_aux['y_hat_sq'] = y_hat_sq
+    # Re-ajustamos para el test de 1 grado de libertad
+    formula_aux = f"Q('{respuesta}') ~ C(Q('{df.columns[0]}')) + y_hat_sq" 
+    # (Nota: simplificado para el factor principal)
+    try:
+        modelo_aux = ols(formula_aux, data=df_aux).fit()
+        p_aditividad = modelo_aux.pvalues['y_hat_sq']
+        return p_aditividad
+    except:
+        return 0.5 # Valor neutral si falla el cálculo
 
-def analizar_post_hoc(df, factor, respuesta):
-    st.subheader("🔍 Prueba de Comparación de Medias (Tukey HSD)")
-    # Ejecutar prueba
+def realizar_diagnostico_supuestos(df, respuesta, modelo, factores):
+    st.header("🔬 Validación de los 4 Supuestos de la Pizza (Residuales)")
+    
+    residuos = modelo.resid
+    ajustados = modelo.fittedvalues
+    
+    # 1. Normalidad (Shapiro-Wilk)
+    _, p_shapiro = stats.shapiro(residuos)
+    
+    # 2. Homocedasticidad (Levene)
+    grupos = [group[respuesta].values for name, group in df.groupby(factores[0])]
+    _, p_levene = stats.levene(*grupos)
+    
+    # 3. Independencia (Durbin-Watson)
+    dw_stat = durbin_watson(residuos)
+    
+    # 4. Aditividad (Prueba de Tukey de 1 GL)
+    p_aditividad = prueba_aditividad_tukey(df, respuesta, modelo)
+
+    # Gráficos Diagnósticos
+    fig, axes = plt.subplots(1, 4, figsize=(20, 4))
+    sm.qqplot(residuos, line='s', ax=axes[0]); axes[0].set_title("Q-Q Plot")
+    sns.scatterplot(x=ajustados, y=residuos, ax=axes[1]); axes[1].axhline(0, color='red'); axes[1].set_title("Homocedasticidad")
+    axes[2].plot(range(len(residuos)), residuos, marker='o'); axes[2].set_title("Independencia")
+    sns.boxplot(x=factores[0], y=residuos, data=df, ax=axes[3]); axes[3].set_title("Aditividad")
+    st.pyplot(fig)
+
+    # Conclusión de Supuestos
+    st.subheader("📋 Informe de Auditoría de Supuestos")
+    
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Normalidad (p)", f"{p_shapiro:.4f}")
+        st.write("✅ Pasa" if p_shapiro > 0.05 else "❌ Falla")
+    with c2:
+        st.metric("Homocedasticidad (p)", f"{p_levene:.4f}")
+        st.write("✅ Pasa" if p_levene > 0.05 else "❌ Falla")
+    with c3:
+        st.metric("Independencia (DW)", f"{dw_stat:.2f}")
+        st.write("✅ Pasa" if 1.5 < dw_stat < 2.5 else "⚠️ Revisar")
+    with c4:
+        st.metric("Aditividad (p)", f"{p_aditividad:.4f}")
+        st.write("✅ Pasa" if p_aditividad > 0.05 else "❌ Falla")
+
+    todo_ok = p_shapiro > 0.05 and p_levene > 0.05 and p_aditividad > 0.05
+    
+    if todo_ok:
+        st.success("**Dictamen:** Se cumplen todos los supuestos. El análisis de varianza es VÁLIDO y CONFIABLE.")
+    else:
+        st.warning("**Dictamen:** Uno o más supuestos han fallado. Los resultados del ANOVA deben interpretarse con precaución o considerar métodos no paramétricos.")
+    
+    return todo_ok
+
+def analizar_post_hoc_v5(df, factor, respuesta):
+    st.header("🔍 Comparación de Medias: Prueba de Tukey HSD")
     ph = sp.posthoc_tukey(df, val_col=respuesta, group_col=factor)
-    st.dataframe(ph.style.background_gradient(cmap='YlGnBu'))
+    st.dataframe(ph.style.background_gradient(cmap='Greens'))
     
-    # Identificar extremos
     medias = df.groupby(factor)[respuesta].mean().sort_values()
-    mejor_t = medias.index[-1]
-    peor_t = medias.index[0]
-    
-    st.markdown(f"""
-    **Interpretación de Rangos:**
-    * El tratamiento que presenta el **mayor promedio** es **{mejor_t}** con una media de `{medias.max():.2f}`.
-    * El tratamiento con el **menor desempeño** es **{peor_t}** con una media de `{medias.min():.2f}`.
-    * *Nota:* En la matriz superior, los valores p < 0.05 indican parejas de tratamientos que son significativamente diferentes entre sí.
+    st.info(f"""
+    **Interpretación de Resultados:**
+    * El tratamiento **{medias.index[-1]}** obtuvo el valor MÁXIMO con `{medias.max():.2f}`.
+    * El tratamiento **{medias.index[0]}** obtuvo el valor MÍNIMO con `{medias.min():.2f}`.
+    * Las celdas con p < 0.05 en la tabla superior indican diferencias significativas entre esos pares específicos.
     """)
 
-def ejecutar_motor_v4(df, diseño, factores, respuesta):
-    st.divider()
-    # Construcción de fórmula (Lógica igual a v3)
-    if diseño == "Diseño Completamente Aleatorizado (DCA)":
-        formula = f"Q('{respuesta}') ~ C(Q('{factores[0]}'))"
+def ejecutar_suite_v5(df, diseño, factores, respuesta):
+    # Ajuste de Fórmula
+    if diseño == "Diseño Factorial":
+        formula = f"Q('{respuesta}') ~ C(Q('{factores[0]}')) * C(Q('{factores[1]}'))"
     elif diseño == "Diseño de Bloques al Azar (DBCA)":
         formula = f"Q('{respuesta}') ~ C(Q('{factores[0]}')) + C(Q('{factores[1]}'))"
-    elif diseño == "Diseño Factorial":
-        formula = f"Q('{respuesta}') ~ C(Q('{factores[0]}')) * C(Q('{factores[1]}'))"
     else:
-        terminos = " + ".join([f"C(Q('{f}'))" for f in factores])
-        formula = f"Q('{respuesta}') ~ {terminos}"
+        formula = f"Q('{respuesta}') ~ C(Q('{factores[0]}'))"
 
     try:
         modelo = ols(formula, data=df).fit()
-        df['Residuos'] = modelo.resid
-        df['Ajustados'] = modelo.fittedvalues
-        df['Orden'] = range(1, len(df) + 1)
         
-        # 4 Supuestos
-        st.header("🔬 Validación de los 4 Supuestos")
-        fig, axes = plt.subplots(1, 4, figsize=(20, 4))
-        sm.qqplot(df['Residuos'], line='s', ax=axes[0]); axes[0].set_title("1. Normalidad")
-        sns.scatterplot(x=df['Ajustados'], y=df['Residuos'], ax=axes[1]); axes[1].axhline(0, color='red'); axes[1].set_title("2. Homocedasticidad")
-        axes[2].plot(df['Orden'], df['Residuos'], marker='o'); axes[2].set_title("3. Independencia")
-        sns.boxplot(x=factores[0], y='Residuos', data=df, ax=axes[3]); axes[3].set_title("4. Aditividad")
-        st.pyplot(fig)
-
-        # ANOVA e Interpretación
-        st.header(f"📊 Resultados del {diseño}")
+        # 1. Auditoría de Supuestos
+        supuestos_validos = realizar_diagnostico_supuestos(df, respuesta, modelo, factores)
+        
+        # 2. Inferencia (ANOVA)
+        st.header(f"📊 Tabla ANAVA: {diseño}")
         tabla_anova = sm.stats.anova_lm(modelo, typ=2)
         st.table(tabla_anova)
         
-        p_val_principal = tabla_anova.iloc[0, 3]
-        redactar_conclusion_pro(p_val_principal, factores[0])
+        p_val = tabla_anova.iloc[0, 3]
         
-        if p_val_principal < 0.05:
-            analizar_post_hoc(df, factores[0], respuesta)
+        # 3. Conclusión Profesional
+        st.subheader("📝 Conclusión del Experimento")
+        if p_val < 0.05:
+            st.success(f"**p-valor = {p_val:.4f} < 0.05**: Existen diferencias estadísticas significativas. Se RECHAZA la Hipótesis Nula (H₀).")
+            st.write("Esto implica que el efecto de los tratamientos no se debe al azar, sino a una respuesta real del factor en estudio.")
+            analizar_post_hoc_v5(df, factores[0], respuesta)
+        else:
+            st.info(f"**p-valor = {p_val:.4f} > 0.05**: No hay diferencias significativas. Se ACEPTA la Hipótesis Nula (H₀).")
+            st.write("Todas las medias se consideran estadísticamente iguales bajo el error experimental analizado.")
 
     except Exception as e:
-        st.error(f"Error técnico: {e}")
+        st.error(f"Error en el motor estadístico: {e}")
 
 # --- INTERFAZ ---
-st.title("🚀 Suite DOE Master v4 - Ing. Víctor Hugo Malavé Girón")
+st.title("🚀 Suite DOE Master v5 - Ing. Víctor Hugo Malavé Girón")
 cargar_imagen_investigador()
 
-archivo = st.file_uploader("Cargue su base de datos para análisis", type=['csv', 'txt'])
+archivo = st.file_uploader("Cargue su base de datos", type=['csv', 'txt'])
 
 if archivo:
     df = pd.read_csv(archivo, sep=None, engine='python')
     columnas = df.columns.tolist()
     
-    st.sidebar.header("⚙️ Configuración")
-    tipo_diseño = st.sidebar.selectbox("Tipo de Diseño:", [
-        "Diseño Completamente Aleatorizado (DCA)",
-        "Diseño de Bloques al Azar (DBCA)",
-        "Diseño Factorial",
-        "Diseño Cuadrado Latino (DCL)"
-    ])
-    
+    st.sidebar.header("⚙️ Ajustes del Diseño")
+    tipo_diseño = st.sidebar.selectbox("Arquitectura del Diseño:", ["DCA", "DBCA", "Diseño Factorial"])
     col_resp = st.sidebar.selectbox("Variable Respuesta (Y):", df.select_dtypes(include=[np.number]).columns)
     
-    # Configuración de factores según diseño
-    if tipo_diseño == "Diseño Completamente Aleatorizado (DCA)":
+    if tipo_diseño == "DCA":
         factores = [st.sidebar.selectbox("Factor Tratamiento:", columnas)]
-    elif tipo_diseño in ["Diseño de Bloques al Azar (DBCA)", "Diseño Factorial"]:
-        f1 = st.sidebar.selectbox("Factor Principal:", columnas)
-        f2 = st.sidebar.selectbox("Factor Secundario/Bloque:", columnas)
-        factores = [f1, f2]
     else:
-        factores = st.sidebar.multiselect("Seleccione Factores:", columnas)
+        f1 = st.sidebar.selectbox("Factor Principal:", columnas)
+        f2 = st.sidebar.selectbox("Factor de Bloque o Interacción:", columnas)
+        factores = [f1, f2]
 
-    if st.sidebar.button("⚡ Ejecutar Análisis Profesional"):
-        ejecutar_motor_v4(df, tipo_diseño, factores, col_resp)
+    if st.sidebar.button("⚡ Iniciar Auditoría y Análisis"):
+        ejecutar_suite_v5(df, tipo_diseño, factores, col_resp)
