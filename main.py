@@ -19,39 +19,31 @@ def cargar_imagen_investigador():
     url = f"https://picsum.photos/id/{id_investigador}/800/400"
     st.image(url, caption="Ingeniería y Ciencia de Datos - VHMG", use_container_width=True)
 
-def mostrar_aeda(df, var_resp):
+def mostrar_aeda(df, col_trat, var_resp):
     st.header(f"🔍 AEDA: Análisis Exploratorio - {var_resp}")
-    
     col1, col2 = st.columns([1, 2])
-    
     with col1:
         st.subheader("📊 Estadística Descriptiva")
-        # Agrupamos por tratamiento y calculamos estadísticos clave
-        stats_df = df.groupby('Tratamiento')[var_resp].agg(['count', 'mean', 'std', 'min', 'median', 'max']).reset_index()
-        # Añadimos Coeficiente de Variación (CV%)
+        stats_df = df.groupby(col_trat)[var_resp].agg(['count', 'mean', 'std', 'min', 'median', 'max']).reset_index()
         stats_df['CV%'] = (stats_df['std'] / stats_df['mean']) * 100
         st.dataframe(stats_df.style.format(precision=2))
-        
     with col2:
         st.subheader("📈 Distribución de Datos Crudos")
         fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-        sns.boxplot(x='Tratamiento', y=var_resp, data=df, ax=ax[0], palette="viridis")
+        sns.boxplot(x=col_trat, y=var_resp, data=df, ax=ax[0], palette="viridis")
         ax[0].set_title("Boxplot por Tratamiento")
-        
-        sns.histplot(data=df, x=var_resp, hue='Tratamiento', kde=True, ax=ax[1], palette="viridis")
+        sns.histplot(data=df, x=var_resp, hue=col_trat, kde=True, ax=ax[1], palette="viridis", legend=False)
         ax[1].set_title("Histograma y Densidad")
         st.pyplot(fig)
 
-def realizar_analisis_completo(df, var_resp):
-    # --- 1. AEDA ---
-    mostrar_aeda(df, var_resp)
-    
+def realizar_analisis_completo(df, col_trat, var_resp):
+    mostrar_aeda(df, col_trat, var_resp)
     st.divider()
+    st.header(f"🔬 Diagnóstico de 4 Supuestos Críticos")
     
-    # --- 2. EVALUACIÓN DE LOS 4 SUPUESTOS (Sobre Residuales) ---
-    st.header(f"🔬 Diagnóstico de 4 Supuestos Críticos ({var_resp})")
+    # Ajuste del modelo dinámico
     try:
-        formula = f"{var_resp} ~ C(Tratamiento)"
+        formula = f"Q('{var_resp}') ~ C(Q('{col_trat}'))"
         modelo = ols(formula, data=df).fit()
         df['Residuales'] = modelo.resid
         df['Ajustados'] = modelo.fittedvalues
@@ -60,17 +52,17 @@ def realizar_analisis_completo(df, var_resp):
         st.error(f"Error al modelar: {e}")
         return
 
-    # Gráficos de Supuestos
+    # Panel de Supuestos
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     sm.qqplot(df['Residuales'], line='s', ax=axes[0, 0])
     axes[0, 0].set_title("1. Normalidad (Q-Q Plot)")
-    sns.scatterplot(x=df['Ajustados'], y='Residuales', data=df, ax=axes[0, 1])
+    sns.scatterplot(x=df['Ajustados'], y=df['Residuales'], ax=axes[0, 1])
     axes[0, 1].axhline(0, color='red', ls='--')
-    axes[0, 1].set_title("2. Homocedasticidad (Res. vs Ajust.)")
+    axes[0, 1].set_title("2. Homocedasticidad")
     axes[1, 0].plot(df['Orden'], df['Residuales'], marker='o')
     axes[1, 0].axhline(0, color='red', ls='--')
-    axes[1, 0].set_title("3. Independencia (Res. vs Orden)")
-    sns.boxplot(x='Tratamiento', y='Residuales', data=df, ax=axes[1, 1])
+    axes[1, 0].set_title("3. Independencia (Orden)")
+    sns.boxplot(x=col_trat, y='Residuales', data=df, ax=axes[1, 1])
     axes[1, 1].axhline(0, color='red', ls='--')
     axes[1, 1].set_title("4. Aditividad (Res. por Trat.)")
     plt.tight_layout()
@@ -78,7 +70,7 @@ def realizar_analisis_completo(df, var_resp):
 
     # Pruebas Formales
     _, p_shapiro = stats.shapiro(df['Residuales'])
-    grupos = [group[var_resp].values for name, group in df.groupby('Tratamiento')]
+    grupos = [group[var_resp].values for name, group in df.groupby(col_trat)]
     _, p_levene = stats.levene(*grupos)
     dw = durbin_watson(df['Residuales'])
     
@@ -93,56 +85,48 @@ def realizar_analisis_completo(df, var_resp):
 
     st.divider()
 
-    # --- 3. INFERENCIA Y CONCLUSIÓN ---
+    # Inferencia
     if cumple_p:
         st.header("📊 Inferencia: ANOVA (Paramétrico)")
         tabla_anova = sm.stats.anova_lm(modelo, typ=2)
         st.table(tabla_anova)
-        p_val = tabla_anova['PR(>F)'][0]
+        p_val = tabla_anova.iloc[0, 3]
     else:
         st.header("📊 Inferencia: Kruskal-Wallis (No Paramétrico)")
         stat_k, p_val = stats.kruskal(*grupos)
         st.write(f"Estadístico H: `{stat_k:.4f}`, p-valor: `{p_val:.4f}`")
 
-    # Redacción de Conclusión Profesional
+    # Conclusión
     st.subheader("📝 Conclusión del Ensayo")
     if p_val < 0.05:
-        st.success(f"**Resultado Significativo (p = {p_val:.4f}):** Se rechaza H₀. Existen diferencias significativas entre tratamientos para la variable **{var_resp}**.")
-        st.subheader("🔍 Pruebas Post-hoc (Comparaciones Múltiples)")
+        st.success(f"**Resultado Significativo (p = {p_val:.4f}):** Existen diferencias reales entre tratamientos.")
         if cumple_p:
-            ph = sp.posthoc_tukey(df, val_col=var_resp, group_col='Tratamiento')
+            ph = sp.posthoc_tukey(df, val_col=var_resp, group_col=col_trat)
         else:
-            ph = sp.posthoc_dunn(df, val_col=var_resp, group_col='Tratamiento', p_adjust='holm')
+            ph = sp.posthoc_dunn(df, val_col=var_resp, group_col=col_trat, p_adjust='holm')
         st.dataframe(ph.style.background_gradient(cmap='coolwarm'))
     else:
-        st.info(f"**Resultado No Significativo (p = {p_val:.4f}):** No se rechaza H₀. No hay evidencia de efectos de los tratamientos sobre **{var_resp}**.")
+        st.info(f"**Resultado No Significativo (p = {p_val:.4f}):** Las diferencias se deben al azar.")
 
-# --- INTERFAZ PRINCIPAL ---
-st.title("📊 Calculadora VHMG Pro: AEDA e Inferencia Avanzada")
-st.markdown("---")
+# --- INTERFAZ ---
+st.title("📊 Calculadora VHMG Pro: Selector Multivariable")
 cargar_imagen_investigador()
 
-archivo = st.file_uploader("Cargue su base de datos (CSV o TXT)", type=['csv', 'txt'])
+archivo = st.file_uploader("Cargue su base de datos", type=['csv', 'txt'])
 
 if archivo:
     try:
         df = pd.read_csv(archivo, sep=None, engine='python')
-        
-        # El usuario DEBE decirnos cuál es la columna de los Tratamientos
         columnas = df.columns.tolist()
-        col_trat = st.selectbox("Seleccione la columna de TRATAMIENTOS (Factores):", columnas)
         
-        # Identificamos columnas numéricas para ser Variables Respuesta
-        col_num = df.select_dtypes(include=[np.number]).columns.tolist()
-        if col_trat in col_num: col_num.remove(col_trat)
-        
-        var_resp = st.selectbox("Seleccione la VARIABLE RESPUESTA a analizar:", col_num)
+        c1, c2 = st.columns(2)
+        with c1:
+            col_trat = st.selectbox("Columna de TRATAMIENTOS:", columnas)
+        with c2:
+            col_num = df.select_dtypes(include=[np.number]).columns.tolist()
+            var_resp = st.selectbox("VARIABLE RESPUESTA:", col_num)
         
         if st.button("🚀 Ejecutar Análisis Completo"):
-            # Renombramos temporalmente para compatibilidad con el motor
-            df_analisis = df[[col_trat, var_resp]].copy()
-            df_analisis.columns = ['Tratamiento', var_resp]
-            realizar_analisis_completo(df_analisis, var_resp)
-            
+            realizar_analisis_completo(df, col_trat, var_resp)
     except Exception as e:
-        st.error(f"Error al procesar: {e}")
+        st.error(f"Error: {e}")
