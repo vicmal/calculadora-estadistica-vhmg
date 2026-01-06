@@ -17,7 +17,7 @@ sns.set_theme(style="whitegrid")
 def cargar_imagen_investigador():
     id_investigador = random.randint(1, 1000)
     url = f"https://picsum.photos/id/{id_investigador}/800/400"
-    st.image(url, caption="Ingeniería y Ciencia de Datos - VHMG", use_container_width=True)
+    st.image(url, caption="Ingeniería y Ciencia de Datos - Ing° Víctor Malavé", use_container_width=True)
 
 def mostrar_aeda(df, col_trat, var_resp):
     st.header(f"🔍 AEDA: Análisis Exploratorio - {var_resp}")
@@ -109,7 +109,7 @@ def realizar_analisis_completo(df, col_trat, var_resp):
         st.info(f"**Resultado No Significativo (p = {p_val:.4f}):** Las diferencias se deben al azar.")
 
 # --- INTERFAZ ---
-st.title("📊 Calculadora VHMG Pro: Selector Multivariable")
+st.title("📊 Calculadora de Análisis de Varianza")
 cargar_imagen_investigador()
 
 archivo = st.file_uploader("Cargue su base de datos", type=['csv', 'txt'])
@@ -130,3 +130,4 @@ if archivo:
             realizar_analisis_completo(df, col_trat, var_resp)
     except Exception as e:
         st.error(f"Error: {e}")
+
