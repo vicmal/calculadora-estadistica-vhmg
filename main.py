@@ -143,7 +143,7 @@ def ejecutar_flujo_v6(df, diseño, factores, respuesta):
         st.info("Sugerencia: Verifique que no haya caracteres especiales o comas en lugar de puntos en sus datos numéricos.")
 
 # --- UI PRINCIPAL ---
-st.title("📊 Master DOE VHMG v6.1: Suite de Ingeniería")
+st.title("📊 CALCULADORA DE ANÁLISIS DE VARIANZA")
 cargar_imagen_investigador()
 
 archivo = st.file_uploader("Cargue el archivo experimental (.csv o .txt)", type=['csv', 'txt'])
@@ -169,3 +169,4 @@ if archivo:
             
     except Exception as e:
         st.error(f"Error al leer el archivo: {e}")
+
