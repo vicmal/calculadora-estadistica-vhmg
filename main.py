@@ -11,7 +11,7 @@ import scikit_posthocs as sp
 import random
 
 # Configuración y Estilo
-st.set_config = st.set_page_config(page_title="Suite DOE VHMG Master v6.1", layout="wide")
+st.set_config = st.set_page_config(page_title="Suite DOE VHMG Master v6.2", layout="wide")
 sns.set_theme(style="whitegrid")
 
 def cargar_imagen_investigador():
@@ -83,19 +83,13 @@ def ejecutar_flujo_v6(df, diseño, factores, respuesta):
     st.subheader("🛠️ Fase 1: Limpieza y Validación de Calidad")
     
     # --- BLOQUE DE LIMPIEZA AUTOMÁTICA ---
-    # 1. Eliminar filas con nulos
     filas_iniciales = len(df)
     df = df.dropna(subset=[respuesta] + factores)
-    
-    # 2. Asegurar respuesta numérica y sin infinitos
     df[respuesta] = pd.to_numeric(df[respuesta], errors='coerce')
     df = df[np.isfinite(df[respuesta])]
-    
-    # 3. Convertir Factores a categorías (strings)
     for f in factores:
         df[f] = df[f].astype(str)
 
-    # Validación de integridad post-limpieza
     if len(df) < filas_iniciales:
         st.warning(f"⚠️ Se eliminaron {filas_iniciales - len(df)} filas debido a datos no numéricos o nulos.")
     
@@ -124,11 +118,27 @@ def ejecutar_flujo_v6(df, diseño, factores, respuesta):
         st.header(f"📊 Tabla de Análisis de Varianza (ANAVA) - {diseño}")
         tabla = sm.stats.anova_lm(modelo, typ=2)
         st.table(tabla)
+
+        # --- Lógica de Interacción Sugerida ---
+        if diseño == "Diseño Factorial":
+            try:
+                p_interaccion = tabla.iloc[2, 3] 
+                st.subheader("🧬 Análisis de Interacción")
+                if p_interaccion < 0.05:
+                    st.warning(f"**Interacción Significativa (p={p_interaccion:.4f}):**")
+                    st.write("Los factores interactúan entre sí. No analice los factores por separado; enfoque su conclusión en las combinaciones específicas de tratamientos.")
+                else:
+                    st.info(f"**Interacción No Significativa (p={p_interaccion:.4f}):**")
+                    st.write("Los factores actúan de forma independiente. Puede interpretar el efecto de cada factor de manera aislada.")
+            except:
+                pass
         
-        p_val = tabla.iloc[0, 3]
+        # Conclusión de Efectos Principales
+        p_val_principal = tabla.iloc[0, 3]
         st.subheader("📝 Conclusión Técnica")
-        if p_val < 0.05:
-            st.success(f"**Significancia detectada (p={p_val:.4f}):** Se rechaza H₀. Existen diferencias significativas entre tratamientos.")
+        if p_val_principal < 0.05:
+            st.success(f"**Significancia detectada (p={p_val_principal:.4f}):** Se rechaza H₀. Existen diferencias significativas entre tratamientos.")
+            
             st.header("🔍 Comparaciones de Medias (Tukey HSD)")
             ph = sp.posthoc_tukey(df, val_col=respuesta, group_col=factores[0])
             st.dataframe(ph.style.background_gradient(cmap='YlGnBu'))
@@ -136,14 +146,14 @@ def ejecutar_flujo_v6(df, diseño, factores, respuesta):
             medias = df.groupby(factores[0])[respuesta].mean().sort_values()
             st.write(f"**Análisis de Rangos:** El tratamiento superior es **{medias.index[-1]}** con media de {medias.max():.2f} y el inferior es **{medias.index[0]}** con {medias.min():.2f}.")
         else:
-            st.info(f"**Sin significancia (p={p_val:.4f}):** No se rechaza H₀. Los tratamientos se comportan de forma similar bajo este error experimental.")
+            st.info(f"**Sin significancia (p={p_val_principal:.4f}):** No se rechaza H₀. Los tratamientos se comportan de forma similar bajo este error experimental.")
 
     except Exception as e:
         st.error(f"❌ Error Crítico en el motor estadístico: {e}")
         st.info("Sugerencia: Verifique que no haya caracteres especiales o comas en lugar de puntos en sus datos numéricos.")
 
 # --- UI PRINCIPAL ---
-st.title("📊 CALCULADORA DE ANÁLISIS DE VARIANZA")
+st.title("📊 CALCULADORA DE ANÁLISIS DE VARIANZA - VHMG")
 cargar_imagen_investigador()
 
 archivo = st.file_uploader("Cargue el archivo experimental (.csv o .txt)", type=['csv', 'txt'])
@@ -169,4 +179,3 @@ if archivo:
             
     except Exception as e:
         st.error(f"Error al leer el archivo: {e}")
-
